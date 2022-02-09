@@ -1,0 +1,307 @@
+package constructorast;
+
+import java_cup.runtime.*;
+import alex.AnalizadorLexicoExp;
+import alex.UnidadLexica;
+import alex.TokenValue;
+import errors.GestionErroresExp;
+import ast.E;
+import ast.IniBloque;
+import ast.EIden;
+import ast.ASExp;
+import tipado.MiTipo;
+import ast.Declaracion;
+import ast.MasDimensiones;
+import ast.Err;
+
+import tipado.TPrimitivo;
+
+scan with {: return getScanner().next_token(); :};
+action code {:
+   private ASExp as = new ASExp();
+:};
+parser code {: 
+   private GestionErroresExp errores;
+   public void syntax_error(Symbol unidadLexica) {
+     errores.errorSintactico((UnidadLexica)unidadLexica);
+   }
+:};
+init with {: 
+   errores = new GestionErroresExp();
+   AnalizadorLexicoExp alex = (AnalizadorLexicoExp)getScanner();
+   alex.fijaGestionErrores(errores);
+:};
+
+
+terminal TokenValue
+		VAR, NOU, 
+		ENTER, 
+		BOOL, CERT, FALS,
+		IDREAL,     
+		PAP, PCIERRE, CAP, CCIERRE, LAP, LCIERRE, ICIERRE, IAP,
+		ASIG, COMA, PUNTO,
+		ELSE, MENTRE, FER, PER, EN, AMB, FUNCIO, TORNAR, BUIT, ESCRIU, LLEGEIX,
+		MAS, MENOS, POR, DIV, 
+		NOT, AND, OR,
+		MAYOR, MENOR, MAYORIGUAL, MENORIGUAL, IGUAL, DISTINTO,
+		ENT, REAL, IDEN;
+
+non terminal  E S, Bloque, Instruccion, 
+            InsDeclaraciones, Asignacion,
+            InsCondicional, Else,
+            InsMentre,
+            InsPer, OpcionAmb,
+            InsFuncio, Argumentos, LeftArgumentos,
+            InsTornar,
+            InsLlamadaFuncio,
+	    	InsAsig, Variable,
+			InsEscriu,
+			InsLlegeix,
+            LlamadaFuncion, LeftPasoDeParametros, PasoDeParametros,
+            E0, E1, E2, E3, E4, E5, E6,
+            Dato,
+			Lista, LeftLista, 
+			LoDelNou;
+non terminal MasDimensiones MASDimensiones;
+non terminal Declaracion Declarar, SigDeclaracion;
+non terminal IniBloque BloqueEntreLlaves;
+non terminal EIden Opciones;
+non terminal TPrimitivo TipoPrimitivo;
+non terminal MiTipo Tipo, TipoFun;
+
+S   ::= Bloque:a
+	{: RESULT =as.iniBloque(a); :};
+
+Bloque ::= Instruccion:i Bloque :b
+	{: RESULT = as.bloque(i,b); :}
+	| error Bloque :b
+	{: RESULT = as.bloque(new Err(),b); :}
+	| 
+	{: RESULT=as.finBloque(); :};
+
+BloqueEntreLlaves ::= LAP Bloque:a LCIERRE
+	{: RESULT =as.iniBloque(a); :};
+
+Instruccion ::= InsDeclaraciones:i PUNTO
+	{: RESULT=i; :}
+	| InsTornar:i  
+	{: RESULT =i; :}
+	| InsCondicional :i
+	{: RESULT =i; :}
+	| InsMentre :i
+	{: RESULT =i; :}
+	| InsPer:i
+	{: RESULT =i; :}
+	| InsLlamadaFuncio: i PUNTO
+	{: RESULT =i; :}
+	| InsFuncio:i
+	{: RESULT =i; :}
+	| InsAsig : i PUNTO
+	{: RESULT =i; :}
+	| InsEscriu : i 
+	{: RESULT = i; :}
+	| InsLlegeix : i 
+	{: RESULT=i; :}
+	| PUNTO 
+	{: RESULT = new Err(); :};
+
+InsDeclaraciones    ::= VAR Tipo: tipo Declarar:decl
+   {: RESULT=as.var(tipo,decl); :};
+
+Declarar ::= IDEN:id Asignacion:asig SigDeclaracion:siguiente
+   {: RESULT=as.declaracion(id.lexema,asig,siguiente); :};
+
+SigDeclaracion ::= COMA Declarar:decl
+   {: RESULT=decl; :}
+   | 
+   {: RESULT=as.finDec(); :};
+
+Asignacion ::= ASIG Dato:expr
+   {: RESULT=expr; :}
+   | ASIG LoDelNou:nou
+   {: RESULT = nou; :}
+   | 
+   {: RESULT=as.porDefecto(); :}
+   | error
+   {: RESULT = new Err(); :};
+
+LoDelNou ::= NOU TipoPrimitivo:tp MASDimensiones:m
+	{: RESULT = as.nou(tp,m); :}
+	| error 
+	{: RESULT = new Err(); :};
+
+MASDimensiones ::= MASDimensiones:m CAP E0:e CCIERRE 
+	{: RESULT = as.masDimensiones(e,m); :}
+	| CAP E0:e CCIERRE
+	{: RESULT = as.masDimensiones(e,null);:};
+
+
+InsAsig ::= Variable:v Asignacion:asig
+  {: RESULT=as.valor(v,asig); :};
+
+Variable ::= Variable:v CAP E0:e CCIERRE 
+    {: RESULT = as.accesoArray(v,e); :}
+    | IDEN:id
+    {: EIden e = as.iden(); e.setIden(id.lexema); RESULT = e; :};
+
+InsLlegeix ::= LLEGEIX Variable:v PUNTO
+	{: RESULT = as.lee(v); :}
+	| LLEGEIX error
+	{: RESULT = as.lee(new Err()); :};
+
+InsEscriu ::= ESCRIU E0:e PUNTO
+	{: RESULT = as.escribe(e); :}
+	| ESCRIU error
+	{: RESULT = as.escribe(new Err()); :};
+
+InsTornar ::= TORNAR E0 : a PUNTO
+	{: RESULT =as.tornar(a); :}
+	| TORNAR error
+	{: RESULT =as.tornar(new Err()); :};
+
+InsCondicional ::= IAP E0:cond ICIERRE BloqueEntreLlaves:blo Else :els
+	{: RESULT =as.si(cond,blo,els); :}
+	| IAP error ICIERRE BloqueEntreLlaves:blo Else :els 
+	{: RESULT = as.si(new Err(),blo,els); :};
+Else ::= ELSE BloqueEntreLlaves : a
+	{: RESULT =as._else(a); :}
+	| 
+	{: RESULT =as.blanco(); :};
+
+InsMentre ::= MENTRE PAP E0:a PCIERRE FER BloqueEntreLlaves:b 
+	{: RESULT = as.mientras(a,b); :}
+	| MENTRE error FER BloqueEntreLlaves:b 
+	{: RESULT = as.mientras(new Err(),b); :};
+
+InsPer ::= PER IDEN:a EN Dato:b OpcionAmb:c FER BloqueEntreLlaves :d
+	{: RESULT =as.per(a.lexema,b,c,d); :};
+OpcionAmb ::= AMB E0 :a
+	{: RESULT = a; :}
+	| AMB error
+	{: RESULT = new Err(); :}
+	| 
+	{: RESULT =as.blanco(); :};
+
+InsLlamadaFuncio ::= IDEN:i LlamadaFuncion:p 
+	{: EIden e = as.llamada(p); e.setIden(i.lexema); RESULT = e; :};
+
+LlamadaFuncion ::= PAP LeftPasoDeParametros:p PCIERRE 
+	{: RESULT =p; :};
+
+LeftPasoDeParametros ::= Dato:d PasoDeParametros :p
+	{: RESULT =as.iniParametro(d,p); :}
+	| error PasoDeParametros :p
+	{: RESULT = as.iniParametro(new Err(),p); :}
+	| 
+	{: RESULT =as.blanco(); :};
+PasoDeParametros ::= COMA Dato:d PasoDeParametros :p
+	{: RESULT =as.parametro(d,p); :}
+	| error PasoDeParametros :p
+	{: RESULT = as.parametro(new Err(),p); :}
+	|
+	{: RESULT =as.blanco(); :};
+
+InsFuncio ::= FUNCIO TipoFun:t IDEN:i PAP LeftArgumentos:p PCIERRE BloqueEntreLlaves:b 
+	{: RESULT =as.funcio(t,i.lexema,p,b); :}
+	| FUNCIO TipoFun:t IDEN:i error BloqueEntreLlaves:b 
+	{: RESULT =as.funcio(t,i.lexema,new Err(),b); :};
+LeftArgumentos  ::= Tipo:t IDEN:i Argumentos :p
+	{: RESULT =as.iniArgumentos(t,i.lexema,p); :}
+	| 
+	{: RESULT =as.blanco(); :};
+Argumentos   ::= COMA Tipo:t IDEN:i Argumentos:p 
+	{: RESULT =as.argumentos(t,i.lexema,p); :}
+	| 
+	{: RESULT =as.blanco(); :};
+
+E0  ::= E0:a MAS E1:b  
+	{: RESULT =as.suma(a,b); :}
+	| E0:a MENOS E1:b  
+	{: RESULT =as.menos(a,b); :}
+	| E1: b 
+	{: RESULT =b ; :};
+
+E1  ::= E1: a POR E2: b  
+	{: RESULT =as.mul(a,b); :}
+	|E1: a DIV E2: b  
+	{: RESULT =as.div(a,b); :}
+	| E2: b 
+	{: RESULT =b ; :};
+
+E2  ::= E2: a OR E3: b   
+	{: RESULT =as.or(a,b); :}
+	| E3: b 
+	{: RESULT =b ; :};
+
+E3  ::= E3: a AND E4: b  
+	{: RESULT =as.and(a,b); :}
+	| E4: b 
+	{: RESULT =b ; :};
+
+E4  ::= E5: a IGUAL E5: b 
+	{: RESULT =as.igual(a,b); :}
+	|E5: a DISTINTO E5: b 
+	{: RESULT =as.dist(a,b); :}
+	|E5: a MAYOR E5: b 
+	{: RESULT =as.may(a,b); :}
+	|E5: a MENOR E5: b 
+	{: RESULT =as.men(a,b); :}
+	|E5: a MAYORIGUAL E5: b 
+	{: RESULT =as.mayig(a,b); :}
+	|E5: a MENORIGUAL E5: b 
+	{: RESULT =as.menig(a,b); :}
+	| E5: b 
+	{: RESULT =b ; :};
+
+E5  ::= NOT E5: a 
+	{: RESULT =as.neg(a); :}
+	| E6: b 
+	{: RESULT =b; :};
+
+E6  ::= ENT: a  
+	{: RESULT =as.ent(a.lexema); :}
+	| REAL: b 
+	{: RESULT =as.real(b.lexema); :} 
+	| CERT 	
+	{: RESULT =as.bool(true); :} 
+	| FALS 
+	{: RESULT =as.bool(false); :}
+	| IDEN:id Opciones:o 
+	{: o.setIden(id.lexema); RESULT =o; :} 
+	| PAP E0: e PCIERRE 
+	{: RESULT =e ; :}
+	| E6:a CAP E0:e CCIERRE
+	{: RESULT = as.accesoArray(a,e); :};
+	
+Opciones  ::= 
+	{: RESULT = as.iden(); :}
+	| LlamadaFuncion:p
+	{: RESULT = as.llamada(p); :};
+
+
+Dato ::= E0:e 
+	{: RESULT=e; :} 
+	| CAP LeftLista:list CCIERRE 
+	{: RESULT = list; :};
+
+LeftLista ::= Dato:d Lista:l 
+	{: RESULT = as.lista(d,l); :}
+	|
+	{: RESULT = as.blanco(); :};
+
+Lista ::= COMA Dato:d Lista:l
+	{: RESULT = as.lista(d,l); :}
+	|
+	{: RESULT = as.blanco(); :};
+
+TipoFun ::= BUIT {: RESULT=new MiTipo(TPrimitivo.BUIT); :} 
+	| Tipo:t {: RESULT=t; :};
+
+TipoPrimitivo ::= ENTER {: RESULT=TPrimitivo.INT; :} 
+	| IDREAL {: RESULT=TPrimitivo.REAL; :}
+	| BOOL {: RESULT=TPrimitivo.BOOL; :};
+
+Tipo ::= Tipo:t CAP CCIERRE 
+	{: t.makeList(); RESULT=t; :}
+	| TipoPrimitivo:tp
+	{: RESULT = new MiTipo(tp); :};
